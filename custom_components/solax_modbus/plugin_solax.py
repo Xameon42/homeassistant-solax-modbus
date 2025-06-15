@@ -6441,6 +6441,16 @@ SENSOR_TYPES_MAIN: list[SolaXModbusSensorEntityDescription] = [
         internal=True,
     ),
     SolaXModbusSensorEntityDescription(
+        name="Total Battery Power Charge",
+        key="battery_power_charge",
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        value_function=value_function_battery_power_charge,
+        allowedtypes=AC | HYBRID | GEN5,
+        icon="mdi:battery-charging",
+    ),
+    SolaXModbusSensorEntityDescription(
         name="House Load",
         key="house_load",
         value_function=value_function_house_load,
@@ -6512,16 +6522,6 @@ SENSOR_TYPES_MAIN: list[SolaXModbusSensorEntityDescription] = [
         value_function=value_function_software_version_g5,
         allowedtypes=AC | HYBRID | GEN5,
         internal=True,
-    ),
-    SolaXModbusSensorEntityDescription(
-        name="Total Battery Power Charge",
-        key="battery_power_charge",
-        native_unit_of_measurement=UnitOfPower.WATT,
-        device_class=SensorDeviceClass.POWER,
-        state_class=SensorStateClass.MEASUREMENT,
-        value_function=value_function_battery_power_charge,
-        allowedtypes=AC | HYBRID | GEN5,
-        icon="mdi:battery-charging",
     ),
     #####
     #
