@@ -4461,6 +4461,7 @@ SENSOR_TYPES_MAIN: list[SolaXModbusSensorEntityDescription] = [
         key="battery_1_capacity_charge",
         native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.BATTERY,
+        state_class=SensorStateClass.MEASUREMENT,
         register=0x1C,
         register_type=REG_INPUT,
         allowedtypes=AC | HYBRID | GEN5,
