@@ -798,6 +798,9 @@ class SolaXModbusHub:
             elif descr.native_unit_of_measurement == UnitOfTemperature.CELSIUS:
                 min_val = getattr(descr, "min_value", -100)
                 max_val = getattr(descr, "max_value", 200)
+            elif descr.native_unit_of_measurement == UnitOfEnergy.KILO_WATT_HOUR:
+                min_val = getattr(descr, "min_value", -self.inverterPowerKw *2)
+                max_val = getattr(descr, "max_value", +self.inverterPowerKw *2)
             elif descr.native_unit_of_measurement == UnitOfPower.KILO_WATT:
                 min_val = getattr(descr, "min_value", -self.inverterPowerKw *2)
                 max_val = getattr(descr, "max_value", +self.inverterPowerKw *2)
