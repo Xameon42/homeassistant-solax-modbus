@@ -6777,6 +6777,15 @@ SENSOR_TYPES_MAIN: list[SolaXModbusSensorEntityDescription] = [
         icon="mdi:battery-charging",
     ),
     SolaXModbusSensorEntityDescription(
+        name="Inverter Power",
+        key="inverter_power",
+        value_function=value_function_inverter_power_g5,
+        native_unit_of_measurement=UnitOfPower.WATT,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        allowedtypes=AC | HYBRID | GEN5 | X3,
+    ),
+    SolaXModbusSensorEntityDescription(
         name="House Load",
         key="house_load",
         value_function=value_function_house_load,
@@ -6796,15 +6805,6 @@ SENSOR_TYPES_MAIN: list[SolaXModbusSensorEntityDescription] = [
         allowedtypes=AC | HYBRID,
         entity_registry_enabled_default=False,
         icon="mdi:home-lightning-bolt",
-    ),
-    SolaXModbusSensorEntityDescription(
-        name="Inverter Power",
-        key="inverter_power",
-        value_function=value_function_inverter_power_g5,
-        native_unit_of_measurement=UnitOfPower.WATT,
-        device_class=SensorDeviceClass.POWER,
-        state_class=SensorStateClass.MEASUREMENT,
-        allowedtypes=AC | HYBRID | GEN5 | X3,
     ),
     SolaXModbusSensorEntityDescription(
         name="PV Power Total",
