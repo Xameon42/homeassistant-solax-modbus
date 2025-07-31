@@ -651,6 +651,7 @@ MAX_EXPORT = [
 EXPORT_LIMIT_SCALE_EXCEPTIONS = [
     ("H4", 10),  # assuming all Gen4s
     ("H34", 10),  # assuming all Gen4s
+    ("H35A", 10), # assuming all Gen5 X3-IES
     ("H3UE", 10),  # Issue #339, 922
     ("H4372A", 1),  # Issue #857
     ("H4502A", 1),  # Issue #857
