@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from homeassistant.components.number import NumberEntityDescription
 from homeassistant.components.select import SelectEntityDescription
 from homeassistant.components.button import ButtonEntityDescription
-from .payload import BinaryPayloadBuilder, BinaryPayloadDecoder, Endian
+from .pymodbus_compat import DataType, convert_from_registers
 from custom_components.solax_modbus.const import *
 
 _LOGGER = logging.getLogger(__name__)
@@ -65,9 +65,9 @@ async def async_read_serialnr(hub, address, swapbytes):
     res = None
     try:
         inverter_data = await hub.async_read_holding_registers(unit=hub._modbus_addr, address=address, count=7)
-        if not inverter_data.isError():
-            decoder = BinaryPayloadDecoder.fromRegisters(inverter_data.registers, byteorder=Endian.BIG)
-            res = decoder.decode_string(14).decode("ascii")
+        if inverter_data is not None and not inverter_data.isError():
+            raw = convert_from_registers(inverter_data.registers[0:7], DataType.STRING, "big")
+            res = raw.decode("ascii", errors="ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
             if swapbytes:
                 ba = bytearray(res, "ascii")  # convert to bytearray for swapping
                 ba[0::2], ba[1::2] = ba[1::2], ba[0::2]  # swap bytes ourselves - due to bug in Endian.LITTLE ?
@@ -110,8 +110,8 @@ class SofarModbusSensorEntityDescription(BaseModbusSensorEntityDescription):
     """A class that describes Sofar Modbus sensor entities."""
 
     allowedtypes: int = ALLDEFAULT  # maybe 0x0000 (nothing) is a better default choice
-    # order16: int = Endian.BIG
-    # order32: int = Endian.BIG
+    order16: str = "big"
+    order32: str = "big"
     unit: int = REGISTER_U16
     register_type: int = REG_HOLDING
 
@@ -233,6 +233,7 @@ BUTTON_TYPES = [
         write_method=WRITE_MULTI_MODBUS,
         icon="mdi:battery-check",
         value_function=value_function_passivemode,
+        depends_on= ("passive_mode_grid_power", "passive_mode_battery_power_min", "passive_mode_battery_power_max",),
     ),
     SofarModbusButtonEntityDescription(
         name="Passive: Update Timeout",
@@ -242,6 +243,7 @@ BUTTON_TYPES = [
         write_method=WRITE_MULTI_MODBUS,
         icon="mdi:timer",
         value_function=value_function_passive_timeout,
+        depends_on=("passive_mode_timeout", "passive_mode_timeout_action", ),
     ),
     # Unlikely to work as Sofar requires writing 7 registers, where the last needs to have the constant value of '1' during a write operation.
     SofarModbusButtonEntityDescription(
@@ -261,6 +263,7 @@ BUTTON_TYPES = [
         write_method=WRITE_MULTI_MODBUS,
         icon="mdi:transmission-tower-import",
         value_function=value_function_refluxcontrol,
+        depends_on=("feedin_limitation_mode", "feedin_max_power",),
     ),
     SofarModbusButtonEntityDescription(
         name="EPS: Update",
@@ -270,6 +273,7 @@ BUTTON_TYPES = [
         write_method=WRITE_MULTI_MODBUS,
         icon="mdi:power-plug-off",
         value_function=value_function_epscontrol,
+        depends_on=("eps_control", "eps_wait_time", ),
     ),
     SofarModbusButtonEntityDescription(
         name="IV Curve Scan",
@@ -1095,7 +1099,7 @@ SENSOR_TYPES: list[SofarModbusSensorEntityDescription] = [
         name="Serial Number",
         key="serial_number",
         register=0x445,
-        newblock=True,
+        #newblock=True,
         unit=REGISTER_STR,
         wordcount=7,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -1106,6 +1110,8 @@ SENSOR_TYPES: list[SofarModbusSensorEntityDescription] = [
         key="hardware_version",
         register=0x44D,
         unit=REGISTER_STR,
+        #newblock=True, # due to problems reported by some users
+        entity_registry_enabled_default=False, # causing problems for some users
         wordcount=2,
         entity_category=EntityCategory.DIAGNOSTIC,
         allowedtypes=HYBRID | PV,
@@ -3168,7 +3174,7 @@ SENSOR_TYPES: list[SofarModbusSensorEntityDescription] = [
         key="feedin_max_power",
         register=0x1024,
         scale=100,
-        entity_registry_enabled_default=False,
+        internal=True,
         icon="mdi:transmission-tower-import",
         allowedtypes=HYBRID | PV,
     ),
@@ -3222,7 +3228,7 @@ SENSOR_TYPES: list[SofarModbusSensorEntityDescription] = [
         name="Parallel Address",
         key="parallel_address",
         register=0x1037,
-        entity_registry_enabled_default=False,
+        internal=True,
         allowedtypes=HYBRID | PV | X3 | PM,
     ),
     ###
@@ -3290,6 +3296,7 @@ SENSOR_TYPES: list[SofarModbusSensorEntityDescription] = [
         name="BatConfig: Charging Voltage",
         key="bat_config_charging_voltage",
         native_unit_of_measurement=UnitOfElectricPotential.VOLT,
+        newblock=True, #added issue #1543
         register=0x1048,
         scale=0.1,
         rounding=1,
@@ -3494,7 +3501,7 @@ SENSOR_TYPES: list[SofarModbusSensorEntityDescription] = [
             0: "Off",
             1: "On",
         },
-        entity_registry_enabled_default=False,
+        internal=True,
         allowedtypes=HYBRID,
     ),
     SofarModbusSensorEntityDescription(
@@ -3509,7 +3516,7 @@ SENSOR_TYPES: list[SofarModbusSensorEntityDescription] = [
             4: "Peak Cut Mode",
             5: "Off-grid Mode",
         },
-        entity_registry_enabled_default=False,
+        internal=True,
         allowedtypes=HYBRID,
     ),
     # TIMING AND TOU DISABLED AS THESE ARE NOT WORKING
@@ -3693,7 +3700,7 @@ SENSOR_TYPES: list[SofarModbusSensorEntityDescription] = [
         name="Passive: Timeout Action",
         key="passive_mode_timeout_action",
         register=0x1185,
-        entity_registry_enabled_default=False,
+        internal=True,
         scale={
             0: "Force Standby",
             1: "Return to Previous Mode",
@@ -3705,7 +3712,7 @@ SENSOR_TYPES: list[SofarModbusSensorEntityDescription] = [
         name="Passive: Desired Grid Power",
         key="passive_mode_grid_power",
         unit=REGISTER_S32,
-        entity_registry_enabled_default=False,
+        internal=True,
         register=0x1187,
         allowedtypes=HYBRID,
         entity_category=EntityCategory.DIAGNOSTIC,
@@ -3715,7 +3722,7 @@ SENSOR_TYPES: list[SofarModbusSensorEntityDescription] = [
         key="passive_mode_battery_power_min",
         unit=REGISTER_S32,
         register=0x1189,
-        entity_registry_enabled_default=False,
+        internal=True,
         allowedtypes=HYBRID,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
@@ -3724,7 +3731,7 @@ SENSOR_TYPES: list[SofarModbusSensorEntityDescription] = [
         key="passive_mode_battery_power_max",
         unit=REGISTER_S32,
         register=0x118B,
-        entity_registry_enabled_default=False,
+        internal=True,
         allowedtypes=HYBRID,
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
@@ -3981,9 +3988,9 @@ class battery_config(base_battery_config):
             inverter_data = await hub.async_read_holding_registers(
                 unit=hub._modbus_addr, address=self.batt_pack_model_address, count=self.batt_pack_model_len
             )
-            if not inverter_data.isError():
-                decoder = BinaryPayloadDecoder.fromRegisters(inverter_data.registers, byteorder=Endian.BIG)
-                serial = str(decoder.decode_string(self.batt_pack_model_len * 2).decode("ascii"))
+            if inverter_data is not None and not inverter_data.isError():
+                raw = convert_from_registers(inverter_data.registers[: self.batt_pack_model_len], DataType.STRING, "big")
+                serial = raw.decode("ascii", errors="ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
                 return serial
         except:
             _LOGGER.warning(f"Cannot read batt pack serial")
@@ -4008,9 +4015,8 @@ class battery_config(base_battery_config):
             inverter_data = await hub.async_read_holding_registers(
                 unit=hub._modbus_addr, address=self.bms_check_address, count=1
             )
-            if not inverter_data.isError():
-                decoder = BinaryPayloadDecoder.fromRegisters(inverter_data.registers, byteorder=Endian.BIG)
-                readed = decoder.decode_16bit_uint()
+            if inverter_data is not None and not inverter_data.isError():
+                readed = convert_from_registers(inverter_data.registers[:1], DataType.UINT16, "big")
                 ok = readed == payload
                 if not ok:
                     await asyncio.sleep(0.3)
@@ -4034,9 +4040,9 @@ class battery_config(base_battery_config):
             unit=hub._modbus_addr, address=self.bms_check_address, count=1
         )
         if not inverter_data.isError():
-            decoder = BinaryPayloadDecoder.fromRegisters(inverter_data.registers, byteorder=Endian.BIG)
-            new_value = decoder.decode_16bit_uint()
-            _LOGGER.debug(f"check_battery_on_end: {hex(new_value)} {hex(compare_value)}")
+            if inverter_data is not None and not inverter_data.isError():
+                new_value = convert_from_registers(inverter_data.registers[:1], DataType.UINT16, "big")
+                _LOGGER.debug(f"check_battery_on_end: {hex(new_value)} {hex(compare_value)}")
             if new_value == compare_value:
                 serial_key = key_prefix + "pack_serial_number"
                 if not new_data.__contains__(serial_key):
@@ -4056,10 +4062,10 @@ class battery_config(base_battery_config):
             inverter_data = await hub.async_read_holding_registers(
                 unit=hub._modbus_addr, address=self.bapack_number_address, count=1
             )
-            if not inverter_data.isError():
-                decoder = BinaryPayloadDecoder.fromRegisters(inverter_data.registers, byteorder=Endian.BIG)
-                self.number_cels_in_parallel = decoder.decode_8bit_int()
-                self.number_strings = decoder.decode_8bit_int()
+            if inverter_data is not None and not inverter_data.isError():
+                val = convert_from_registers(inverter_data.registers[:1], DataType.UINT16, "big")
+                self.number_cels_in_parallel = (val >> 8) & 0xFF  # high byte
+                self.number_strings = val & 0xFF                  # low byte
         except Exception as ex:
             _LOGGER.warning(f"{hub.name}: attempt to read BaPack number failed at 0x{address:x}", exc_info=True)
 
@@ -4085,9 +4091,9 @@ class battery_config(base_battery_config):
         inverter_data = await hub.async_read_holding_registers(
             unit=hub._modbus_addr, address=self.batt_pack_serial_address, count=self.batt_pack_serial_len
         )
-        if not inverter_data.isError():
-            decoder = BinaryPayloadDecoder.fromRegisters(inverter_data.registers, byteorder=Endian.BIG)
-            serial = str(decoder.decode_string(self.batt_pack_serial_len * 2).decode("ascii"))
+        if inverter_data is not None and not inverter_data.isError():
+            raw = convert_from_registers(inverter_data.registers[: self.batt_pack_serial_len], DataType.STRING, "big")
+            serial = raw.decode("ascii", errors="ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
             return serial
 
 
@@ -4216,8 +4222,11 @@ plugin_instance = sofar_plugin(
     SELECT_TYPES=SELECT_TYPES,
     SWITCH_TYPES=[],
     BATTERY_CONFIG=battery_config(),
-    block_size=100,
-    order16=Endian.BIG,
-    order32=Endian.BIG,
+    block_size=48,
+    order32="big",
     auto_block_ignore_readerror=True,
+    default_holding_scangroup = SCAN_GROUP_DEFAULT,  
+    default_input_scangroup = SCAN_GROUP_DEFAULT,   # or SCAN_GROUP_AUTO
+    auto_default_scangroup = SCAN_GROUP_FAST, # only used when default_xxx_scangroup is set to SCAN_GROUP_AUTO
+    auto_slow_scangroup = SCAN_GROUP_MEDIUM, # only usedwhen default_xxx_scangroup is set to SCAN_GROUP_AUTO
 )
