@@ -12,9 +12,9 @@ from homeassistant.components.select import SelectEntityDescription
 from homeassistant.components.switch import SwitchEntityDescription
 from homeassistant.components.button import ButtonEntityDescription
 from homeassistant.helpers.entity import EntityCategory
-from pymodbus.payload import Endian
 from datetime import datetime, timedelta
 from dataclasses import dataclass, replace
+from typing import Optional
 import pathlib
 
 from homeassistant.const import (
@@ -149,13 +149,13 @@ class plugin_base:
     auto_block_ignore_readerror: bool | None = (
         None  # if True or False, inserts a ignore_readerror statement for each block
     )
-    order16: int | None = None  # Endian.BIG or Endian.LITTLE
-    order32: int | None = None
+    #order16: str | None = None # ignored since 2025.09 - assuming "big" for all plugins
+    order32: str | None = None # "big" or "little" - used to be Endian.BIG or Endian.LITTLE
     inverter_model: str = None
     default_holding_scangroup: str = SCAN_GROUP_DEFAULT  
     default_input_scangroup: str = SCAN_GROUP_DEFAULT   # or SCAN_GROUP_AUTO
-    auto_default_scangroup: str = SCAN_GROUP_FAST, # only used when default_xxx_scangroup is set to SCAN_GROUP_AUTO
-    auto_slow_scangroup: str = SCAN_GROUP_MEDIUM, # only usedwhen default_xxx_scangroup is set to SCAN_GROUP_AUTO
+    auto_default_scangroup: str = SCAN_GROUP_FAST # only used when default_xxx_scangroup is set to SCAN_GROUP_AUTO
+    auto_slow_scangroup: str = SCAN_GROUP_MEDIUM # only usedwhen default_xxx_scangroup is set to SCAN_GROUP_AUTO
 
     def isAwake(self, datadict):
         return True  # always awake by default
@@ -221,6 +221,7 @@ class BaseModbusSensorEntityDescription(SensorEntityDescription):
     # The name and key must contain a placeholder {} that is replaced by the preceding number
     min_value: int = None
     max_value: int = None
+    depends_on: list = None # list of modbus register keys that must be read
 
 @dataclass
 class BaseModbusButtonEntityDescription(ButtonEntityDescription):
@@ -231,6 +232,7 @@ class BaseModbusButtonEntityDescription(ButtonEntityDescription):
     write_method: int = WRITE_SINGLE_MODBUS  # WRITE_SINGLE_MOBUS or WRITE_MULTI_MODBUS or WRITE_DATA_LOCAL
     value_function: callable = None  #  value = function(initval, descr, datadict)
     autorepeat: str = None  # if not None: name of entity that contains autorepeat duration in seconds
+    depends_on: list = None  # list of modbus register keys that must be read
 
 
 @dataclass
@@ -243,7 +245,8 @@ class BaseModbusSelectEntityDescription(SelectEntityDescription):
     write_method: int = WRITE_SINGLE_MODBUS  # WRITE_SINGLE_MOBUS or WRITE_MULTI_MODBUS or WRITE_DATA_LOCAL
     initvalue: int = None  # initial default value for WRITE_DATA_LOCAL entities
     unit: int = None  #  optional for WRITE_DATA_LOCAL e.g REGISTER_U16, REGISTER_S32 ...
-
+    sensor_key: str = None # specify only when corresponding sensor has a different key name
+    depends_on: list = None # list of modbus register keys that must be read
 
 @dataclass
 class BaseModbusSwitchEntityDescription(SwitchEntityDescription):
@@ -255,7 +258,7 @@ class BaseModbusSwitchEntityDescription(SwitchEntityDescription):
     initvalue: int = None  # initial default value for WRITE_DATA_LOCAL entities
     sensor_key: str = None  # The associated sensor key
     value_function: callable = None  # Value function used to determine the new sensor value when the switch changes
-
+    depends_on: list = None # list of modbus register keys that must be read
 
 @dataclass
 class BaseModbusNumberEntityDescription(NumberEntityDescription):
@@ -274,7 +277,9 @@ class BaseModbusNumberEntityDescription(NumberEntityDescription):
     unit: int = None  #  optional for WRITE_DATA_LOCAL e.g REGISTER_U16, REGISTER_S32 ...
     prevent_update: bool = False  # if set to True, value will not be re-read/updated with each polling cycle;
                                   # update only when read value changes
-
+    sensor_key: str = None # only specify this if corresponding sensor has a different key name
+    depends_on: list = None # list of modbus register keys that must be read
+    suggested_display_precision: Optional[int] = None
 
 # ========================= autorepeat aux functions to be used on hub.data dictionary ===============================
 

@@ -31,47 +31,24 @@ empty_input_device_group_lambda = lambda: SimpleNamespace(
         readFollowUp = None,
         )
 
-def is_entity_enabled(hass, hub, descriptor): # Check if the entity is enabled in Home Assistant 
-    """ 
-    Check if an entity is enabled in the entity registry, checking across multiple platforms. 
-    """ 
-    unique_id = f"{hub._name}_{descriptor.key}" 
-    platforms = ("sensor",) # makes no sense to search the others platforms , "select", "number", "switch", "button") 
-    registry = er.async_get(hass)
 
-    entity_found = False 
-    # First, check if there is an existing enabled entity in the registry for this unique_id. 
-    for platform in platforms: 
-        entity_id = registry.async_get_entity_id(platform, DOMAIN, unique_id)
-        _LOGGER.debug(f"entity_id for {unique_id} on platform {platform} is now {entity_id}")
-        if entity_id:
-            entity_found = True
-            entity_entry = registry.async_get(entity_id) 
-            if entity_entry and not entity_entry.disabled: 
-                _LOGGER.debug(f"Entity {entity_id} is enabled, returning True.")
-                return True # Found an enabled entity, no need to check further 
-    # check the other platforms in a quickfix way
-    d =  hub.selectEntities.get(descriptor.key) 
-    if d and d.entity_registry_enabled_default: 
-        _LOGGER.debug(f"++++++++++++++++++++++++++++++++ entity enabled because select is enabled {unique_id} by default")
-        return True # temporary dirty fix 
-    d =  hub.numberEntities.get(descriptor.key)
-    if d and d.entity_registry_enabled_default:
-        _LOGGER.debug(f"++++++++++++++++++++++++++++++++ entity enabled because number is enabled {unique_id} by default")
-        return True # temporary dirty fix 
-    d =  hub.switchEntities.get(descriptor.key)
-    if d and d.entity_registry_enabled_default: 
-        _LOGGER.debug(f"++++++++++++++++++++++++++++++++ entity enabled because switch is enabled {unique_id} by default")
-        return True # temporary dirty fix 
-    # If we get here, no enabled entity was found across all platforms.
-    if entity_found: 
-        # At least one entity exists for this unique_id, but all are disabled. Respect the user's choice. 
-        _LOGGER.debug(f"Entity with unique_id {unique_id} was found but is disabled across all relevant platforms.")
-        return False
-    else: 
-        # No entity exists for this unique_id on any platform. Treat it as a new entity. 
-        _LOGGER.debug(f"Entity with unique_id {unique_id} not found in entity registry, " f"applying default: {descriptor.entity_registry_enabled_default}")
+def is_entity_enabled(hass, hub, descriptor, use_default = False): 
+    # simple test, more complex counterpart is should_register_be_loaded
+    unique_id     = f"{hub._name}_{descriptor.key}" 
+    registry = er.async_get(hass)
+    entity_id = registry.async_get_entity_id('sensor', DOMAIN, unique_id) 
+    if entity_id:
+        entity_entry = registry.async_get(entity_id) 
+        if entity_entry and not entity_entry.disabled: 
+            _LOGGER.debug(f"{hub.name}: is_entity_enabled: {entity_id} is enabled, returning True.")
+            return True # Found an enabled entity, no need to check further 
+    else:
+        _LOGGER.info(f"{hub.name}: entity {unique_id} not found in registry")
+    if use_default: 
+        _LOGGER.debug(f"{hub.name}: is_entity_enabled: {entity_id} not found in registry, returning default {descriptor.entity_registry_enabled_default}.")
         return descriptor.entity_registry_enabled_default
+    return False
+
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
@@ -169,7 +146,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
     #now the groups are available
     hub.computedSensors = computedRegs
     hub.rebuild_blocks(initial_groups) #, computedRegs) # first time call
-    _LOGGER.debug(f"computedRegs: {hub.computedSensors}")
+    _LOGGER.info(f"{hub.name}: computedRegs: {hub.computedSensors}")
     return True
 
 
@@ -209,17 +186,25 @@ def entityToListSingle(hub, hub_name, entities, groups, computedRegs, device_inf
     )
 
     hub.sensorEntities[newdescr.key] = sensor
+    # register dependency chain
+    deplist = newdescr.depends_on
+    if isinstance(deplist, str): deplist = (deplist, )
+    if isinstance(deplist, (list, tuple,)):
+        _LOGGER.debug(f"{hub.name}: {newdescr.key} depends on entities {deplist}")
+        for dep_on in deplist: # register inter-sensor dependencies (e.g. for value functions)
+            if dep_on != newdescr.key: hub.entity_dependencies.setdefault(dep_on, []).append(newdescr.key) # can be more than one
     #internal sensors are only used for polling values for selects, etc
     if not getattr(newdescr,"internal",None):
         entities.append(sensor)
     if newdescr.sleepmode == SLEEPMODE_NONE: hub.sleepnone.append(newdescr.key)
     if newdescr.sleepmode == SLEEPMODE_ZERO: hub.sleepzero.append(newdescr.key)
     if (newdescr.register < 0): # entity without modbus address
-        enabled = is_entity_enabled(hub._hass, hub, newdescr) # dont compute disabled entities anymore
-        if newdescr.value_function and enabled: #*** dont compute disabled entities anymore
+        enabled = is_entity_enabled(hub._hass, hub, newdescr, use_default = True) # dont compute disabled entities anymore
+        #if not enabled: _LOGGER.info(f"is_entity_enabled called for disabled entity {newdescr.key}")
+        if newdescr.value_function and (enabled or newdescr.internal): #*** dont compute disabled entities anymore unless internal
             computedRegs[newdescr.key] = newdescr
         else: 
-            if enabled: _LOGGER.warning(f"entity without modbus register address and without value_function found: {newdescr.key}")
+            if enabled: _LOGGER.warning(f"{hub_name}: entity without modbus register address and without value_function found: {newdescr.key}")
     else:
         #target group
         interval_group = groups.setdefault(hub.scan_group(sensor), empty_input_interval_group_lambda())
@@ -235,17 +220,17 @@ def entityToListSingle(hub, hub_name, entities, groups, computedRegs, device_inf
                 if newdescr.unit in (REGISTER_U8H, REGISTER_U8L,) and holdingRegs[newdescr.register].unit in (REGISTER_U8H, REGISTER_U8L,) :
                     first = holdingRegs[newdescr.register]
                     holdingRegs[newdescr.register] = { first.unit: first, newdescr.unit: newdescr }
-                else: _LOGGER.warning(f"holding register already used: 0x{newdescr.register:x} {newdescr.key}")
+                else: _LOGGER.warning(f"{hub_name}: holding register already used: 0x{newdescr.register:x} {newdescr.key}")
             else:
                 holdingRegs[newdescr.register] = newdescr
         elif newdescr.register_type == REG_INPUT:
             if newdescr.register in inputRegs: # duplicate or 2 bytes in one register ?
                 first = inputRegs[newdescr.register]
                 inputRegs[newdescr.register] = { first.unit: first, newdescr.unit: newdescr }
-                _LOGGER.warning(f"input register already declared: 0x{newdescr.register:x} {newdescr.key}")
+                _LOGGER.warning(f"{hub_name}: input register already declared: 0x{newdescr.register:x} {newdescr.key}")
             else:
                 inputRegs[newdescr.register] = newdescr
-        else: _LOGGER.warning(f"entity declaration without register_type found: {newdescr.key}")
+        else: _LOGGER.warning(f"{hub_name}: entity declaration without register_type found: {newdescr.key}")
 
 
 class SolaXModbusSensor(SensorEntity):
